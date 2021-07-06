@@ -51,7 +51,9 @@ class ImagePickerAdapter(
         }
 
         fun bind() {
-            imageClickListener.onPlaceholderClicked()
+            ivCustomImage.setOnClickListener {
+                imageClickListener.onPlaceholderClicked()
+            }
         }
     }
 

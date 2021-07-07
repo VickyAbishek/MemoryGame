@@ -1,9 +1,9 @@
-
 package com.example.mymemory.utils
 
 import com.example.mymemory.R
 
-const val EXTRA_BOARD_SIZE  = "EXTRA_BOARD_SIZE"
+const val EXTRA_BOARD_SIZE = "EXTRA_BOARD_SIZE"
+const val NEW_GAME_NAME = "NEW_GAME_NAME"
 
 val DEFAULT_ICONS = listOf<Int>(
     R.drawable.ic_face,

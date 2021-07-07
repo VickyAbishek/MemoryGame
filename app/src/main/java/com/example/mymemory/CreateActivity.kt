@@ -1,6 +1,7 @@
 package com.example.mymemory
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -8,10 +9,8 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.provider.MediaStore
-import android.provider.MediaStore.MediaColumns.BITRATE
 import android.text.Editable
 import android.text.InputFilter
 import android.text.TextWatcher
@@ -20,14 +19,15 @@ import android.view.MenuItem
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.addTextChangedListener
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.mymemory.models.BoardSize
-import com.example.mymemory.utils.BitmapScaler
-import com.example.mymemory.utils.EXTRA_BOARD_SIZE
-import com.example.mymemory.utils.isPermissionGranted
-import com.example.mymemory.utils.requestPermission
+import com.example.mymemory.utils.*
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.ktx.storage
 import java.io.ByteArrayOutputStream
 
 class CreateActivity : AppCompatActivity() {
@@ -45,6 +45,9 @@ class CreateActivity : AppCompatActivity() {
     private var numImagesRequired = -1
     private val chosenImagesUris = mutableListOf<Uri>()
     private lateinit var imagePickerAdapter: ImagePickerAdapter
+
+    private val storage = Firebase.storage
+    private val db = Firebase.firestore
 
     private lateinit var rvImagePicker: RecyclerView
     private lateinit var etGameName: EditText
@@ -156,13 +159,61 @@ class CreateActivity : AppCompatActivity() {
     }
 
     private fun saveDataToFirebase() {
-        for( (index:Int, photoUri: Uri) in chosenImagesUris.withIndex() ) {
-            var imageByteArray = getImageByteArray(photoUri)
+        val customGameName = etGameName.text.toString()
+        var didEncounterError = false
+        val uploadedImageUris = mutableListOf<String>()
+
+        for ((index: Int, photoUri: Uri) in chosenImagesUris.withIndex()) {
+            val imageByteArray = getImageByteArray(photoUri)
+            val filePath = "images/$customGameName/${System.currentTimeMillis()}-${index}.jpg"
+            val photoReference = storage.reference.child(filePath)
+            photoReference.putBytes(imageByteArray)
+                .continueWithTask { photoUploadTask ->
+                    Log.i(TAG, "Uploaded bytes ${photoUploadTask.result?.bytesTransferred}")
+                    photoReference.downloadUrl
+                }.addOnCompleteListener { downloadUrlTask ->
+                    if (!downloadUrlTask.isSuccessful) {
+                        Toast.makeText(this, "Failed to upload image", Toast.LENGTH_LONG).show()
+                        didEncounterError = true
+                        return@addOnCompleteListener
+                    }
+                    if (didEncounterError) {
+                        return@addOnCompleteListener
+                    }
+                    val downloadUrl = downloadUrlTask.result.toString()
+                    uploadedImageUris.add(downloadUrl)
+                    if (uploadedImageUris.size == chosenImagesUris.size) {
+                        handleAllUploadedImages(customGameName, uploadedImageUris)
+                    }
+                }
         }
     }
 
+    private fun handleAllUploadedImages(gameName: String, uploadedImageUris: MutableList<String>) {
+        db.collection("games").document(gameName)
+            .set(mapOf("images" to uploadedImageUris))
+            .addOnCompleteListener { gameCreationTask ->
+                if (!gameCreationTask.isSuccessful) {
+                    Toast.makeText(this@CreateActivity, "Game creation failed", Toast.LENGTH_LONG)
+                        .show()
+                    Log.i(TAG, "Upload failed ${gameCreationTask.exception}")
+                    return@addOnCompleteListener
+                }
+                Log.i(TAG, "Upload success")
+                AlertDialog.Builder(this)
+                    .setTitle("Upload Complete")
+                    .setPositiveButton("OK") { _, _ ->
+                        val resultData = Intent()
+                        resultData.putExtra(NEW_GAME_NAME, gameName)
+                        setResult(Activity.RESULT_OK, resultData)
+                        finish()
+                    }.show()
+            }
+
+    }
+
     private fun getImageByteArray(photoUri: Uri): ByteArray {
-        val originalBitmap = if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ) {
+        val originalBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val source = ImageDecoder.createSource(contentResolver, photoUri)
             ImageDecoder.decodeBitmap(source)
         } else {

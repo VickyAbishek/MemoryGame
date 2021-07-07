@@ -4,20 +4,31 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.provider.MediaStore
+import android.provider.MediaStore.MediaColumns.BITRATE
+import android.text.Editable
+import android.text.InputFilter
+import android.text.TextWatcher
 import android.util.Log
 import android.view.MenuItem
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
+import androidx.core.widget.addTextChangedListener
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.mymemory.models.BoardSize
+import com.example.mymemory.utils.BitmapScaler
 import com.example.mymemory.utils.EXTRA_BOARD_SIZE
 import com.example.mymemory.utils.isPermissionGranted
 import com.example.mymemory.utils.requestPermission
+import java.io.ByteArrayOutputStream
 
 class CreateActivity : AppCompatActivity() {
 
@@ -26,6 +37,8 @@ class CreateActivity : AppCompatActivity() {
         private const val READ_EXTERNAL_PHOTOS_CODE = 312
         private const val READ_PHOTOS_PERMISSION = android.Manifest.permission.READ_EXTERNAL_STORAGE
         private const val TAG = "CreateActivity"
+        private const val MIN_GAME_NAME_LENGTH = 3
+        private const val MAX_GAME_NAME_LENGTH = 14
     }
 
     private lateinit var boardSize: BoardSize
@@ -49,6 +62,21 @@ class CreateActivity : AppCompatActivity() {
         rvImagePicker = findViewById(R.id.rvImagePicker)
         etGameName = findViewById(R.id.etGameName)
         btnSave = findViewById(R.id.btnSave)
+
+        btnSave.setOnClickListener {
+            saveDataToFirebase()
+        }
+        etGameName.filters = arrayOf(InputFilter.LengthFilter(MAX_GAME_NAME_LENGTH))
+        etGameName.addTextChangedListener {
+            object : TextWatcher {
+                override fun afterTextChanged(s: Editable?) {
+                    btnSave.isEnabled = shouldEnableSaveButton()
+                }
+
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            } }
+
 
         imagePickerAdapter = ImagePickerAdapter(this,chosenImagesUris, boardSize, object: ImagePickerAdapter.ImageClickListener{
             override fun onPlaceholderClicked() {
@@ -106,7 +134,10 @@ class CreateActivity : AppCompatActivity() {
     }
 
     private fun shouldEnableSaveButton(): Boolean {
-        return chosenImagesUris.size == numImagesRequired
+        if ( chosenImagesUris.size != numImagesRequired ||  etGameName.text.isBlank() || etGameName.text.length < MIN_GAME_NAME_LENGTH ) {
+            return false
+        }
+        return true
     }
 
     private fun launchIntentForPhotos() {
@@ -123,4 +154,25 @@ class CreateActivity : AppCompatActivity() {
         }
         return super.onOptionsItemSelected(item)
     }
+
+    private fun saveDataToFirebase() {
+        for( (index:Int, photoUri: Uri) in chosenImagesUris.withIndex() ) {
+            var imageByteArray = getImageByteArray(photoUri)
+        }
+    }
+
+    private fun getImageByteArray(photoUri: Uri): ByteArray {
+        val originalBitmap = if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ) {
+            val source = ImageDecoder.createSource(contentResolver, photoUri)
+            ImageDecoder.decodeBitmap(source)
+        } else {
+            MediaStore.Images.Media.getBitmap(contentResolver, photoUri)
+        }
+
+        val scaledBitmap = BitmapScaler.scaleToFitHeight(originalBitmap, 250)
+        val byteOutputStream = ByteArrayOutputStream()
+        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 60, byteOutputStream)
+        return byteOutputStream.toByteArray()
+    }
+
 }
